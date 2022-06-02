@@ -1,6 +1,6 @@
 # RAK4631_RAK12500_RAK12002_OLED
 
-Demo code for WisBlock with OLED, GNSS and RTC modules.
+Demo code for WisBlock with Wisblock OLED, GNSS and [RTC](https://store.rakwireless.com/products/rtc-module-rak12002?variant=40102983598278) modules.
 
 At the heart of the RTC module is an [RV-3028 C7 Real-Time Clock Module](https://www.microcrystal.com/en/products/real-time-clock-rtc-modules/rv-3028-c7/), which is optimized for extreme low power consumption. It has a wide operating voltage range, 1.1 to 5.5 V, and uses the I²C bus interface at 400 kHz. It has a lofty 43 bytes (!!!) of non-volatile user memory, which could be used to save basic settings, without having to add an EEPROM. Perfect for IoT and low-power requirements.
 

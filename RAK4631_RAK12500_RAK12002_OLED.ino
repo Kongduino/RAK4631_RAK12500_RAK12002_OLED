@@ -13,9 +13,9 @@
 #include "SSD1306Ascii.h"
 // http://librarymanager/All#SSD1306Ascii
 #include "SSD1306AsciiWire.h"
-#include <RV-3028-C7.h>
+#include "Melopero_RV3028.h"
 
-RV3028 rtc;
+Melopero_RV3028 rtc;
 bool TimeAdjusted = false;
 
 #define I2C_ADDRESS 0x3C
@@ -30,28 +30,31 @@ long g_lastTime = 0;
 /**@brief Pretty-prints a buffer in hexadecimal, 16 bytes a line
           wth ASCII representation on the right àla hexdump -C
 */
-void hexDump(uint8_t *buf, uint16_t len) {
-  String s = "|", t = "| |";
-  Serial.println(F("  |.0 .1 .2 .3 .4 .5 .6 .7 .8 .9 .a .b .c .d .e .f |"));
-  Serial.println(F("  +------------------------------------------------+ +----------------+"));
+void hexDump(unsigned char *buf, uint16_t len) {
+  char alphabet[17] = "0123456789abcdef";
+  Serial.print(F("   +------------------------------------------------+ +----------------+\n"));
+  Serial.print(F("   |.0 .1 .2 .3 .4 .5 .6 .7 .8 .9 .a .b .c .d .e .f | |      ASCII     |\n"));
   for (uint16_t i = 0; i < len; i += 16) {
+    if (i % 128 == 0)
+      Serial.print(F("   +------------------------------------------------+ +----------------+\n"));
+    char s[] = "|                                                | |                |\n";
+    uint8_t ix = 1, iy = 52;
     for (uint8_t j = 0; j < 16; j++) {
-      if (i + j >= len) {
-        s = s + "   "; t = t + " ";
-      } else {
-        char c = buf[i + j];
-        if (c < 16) s = s + "0";
-        s = s + String(c, HEX) + " ";
-        if (c < 32 || c > 127) t = t + ".";
-        else t = t + (String(c));
+      if (i + j < len) {
+        uint8_t c = buf[i + j];
+        s[ix++] = alphabet[(c >> 4) & 0x0F];
+        s[ix++] = alphabet[c & 0x0F];
+        ix++;
+        if (c > 31 && c < 128) s[iy++] = c;
+        else s[iy++] = '.';
       }
     }
     uint8_t index = i / 16;
+    if (i < 256) Serial.write(' ');
     Serial.print(index, HEX); Serial.write('.');
-    Serial.println(s + t + "|");
-    s = "|"; t = "| |";
+    Serial.print(s);
   }
-  Serial.println(F("  +------------------------------------------------+ +----------------+"));
+  Serial.print(F("   +------------------------------------------------+ +----------------+\n"));
 }
 
 void setup() {
@@ -100,29 +103,24 @@ void setup() {
   //Set the I2C port to output UBX only (turn off NMEA noise)
   g_myGNSS.saveConfigSelective(VAL_CFG_SUBSEC_IOPORT);
   //Save (only) the communications port settings to flash and BBR
-  if (rtc.begin() == false) {
-    Serial.println("Something went wrong, check wiring");
-    oled.println("RTC: Something's wrong");
-    while (1);
-  } else {
-    Serial.println("RTC online!");
-    oled.println("RTC online!");
-    rtc.set24Hour();
-    char buff[16];
-    memset(buff, 0, 16);
-    strcpy(buff, "Kongduino");
-    for (uint8_t i = 0; i < 8; i++) {
-      rtc.writeConfigEEPROM_RAMmirror(i, buff[i]);
-      delay(20);
-    }
-    memset(buff, 0, 16);
-    for (uint8_t i = 0; i < 8; i++) {
-      buff[i] = rtc.readConfigEEPROM_RAMmirror(i);
-      delay(20);
-    }
-    Serial.println("buff:");
-    hexDump((uint8_t *)buff, 16);
+  rtc.initDevice();
+  Serial.println("RTC online!");
+  oled.println("RTC online!");
+  rtc.set24HourMode();
+  char buff[16];
+  memset(buff, 0, 16);
+  strcpy(buff, "Kongduino");
+  for (uint8_t i = 0; i < 16; i++) {
+    rtc.writeEEPROMRegister(i, buff[i]);
+    delay(20);
   }
+  memset(buff, 0, 16);
+  for (uint8_t i = 0; i < 16; i++) {
+    buff[i] = rtc.readEEPROMRegister(i);
+    delay(20);
+  }
+  Serial.println("buff:");
+  hexDump((uint8_t *)buff, 16);
 }
 
 void loop() {
@@ -167,33 +165,27 @@ void loop() {
       Serial.println(buff);
       if (!TimeAdjusted) {
         // if we haven't adjusted the time, let's do so.
-        if (rtc.setTime(
-              g_myGNSS.getSecond(), g_myGNSS.getMinute(), g_myGNSS.getHour(), g_myGNSS.getDay(),
-              g_myGNSS.getTimeOfWeek(), g_myGNSS.getMonth(), g_myGNSS.getYear()) == false) {
-          Serial.println("Something went wrong setting the time");
-        }
-        TimeAdjusted = true;
-      } else {
-        // Do we need to adjust the time?
-        // Check for excessive difference between GNSS time and RTC time
-        // rtc.updateTime() has to be called first!
-        rtc.updateTime();
-        if (rtc.getMinutes() != g_myGNSS.getMinute() || g_myGNSS.getHour() != rtc.getHours()) {
-          Serial.println("Readjusting RTC");
-          if (rtc.setTime(
-                g_myGNSS.getSecond(), g_myGNSS.getMinute(), g_myGNSS.getHour(), g_myGNSS.getDay(),
-                g_myGNSS.getTimeOfWeek(), g_myGNSS.getMonth(), g_myGNSS.getYear()) == false
-             ) {
-            Serial.println(" . Something went wrong setting the time");
-            oled.println("RTC Time Error");
-          }
-        }
+        rtc.setTime(
+          g_myGNSS.getSecond(), g_myGNSS.getMinute(), g_myGNSS.getHour(), g_myGNSS.getDay(),
+          g_myGNSS.getTimeOfWeek(), g_myGNSS.getMonth(), g_myGNSS.getYear());
       }
-      rtc.updateTime();
-      sprintf(buff, "rTime: %02d:%02d:%02d UTC", rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
-      oled.println(buff);
-      Serial.println(buff);
+      TimeAdjusted = true;
+    } else {
+      // Do we need to adjust the time?
+      // Check for excessive difference between GNSS time and RTC time
+      // rtc.updateTime() has to be called first!
+      // rtc.updateTime();
+      if (rtc.getMinute() != g_myGNSS.getMinute() || g_myGNSS.getHour() != rtc.getHour()) {
+        Serial.println("Readjusting RTC");
+        rtc.setTime(
+          g_myGNSS.getSecond(), g_myGNSS.getMinute(), g_myGNSS.getHour(), g_myGNSS.getDay(),
+          g_myGNSS.getTimeOfWeek(), g_myGNSS.getMonth(), g_myGNSS.getYear());
+      }
     }
-    g_lastTime = millis(); //Update the timer
+    // rtc.updateTime();
+    sprintf(buff, "rTime: %02d:%02d:%02d UTC", rtc.getHour(), rtc.getMinute(), rtc.getSecond());
+    oled.println(buff);
+    Serial.println(buff);
   }
+  g_lastTime = millis(); // Update the timer
 }
